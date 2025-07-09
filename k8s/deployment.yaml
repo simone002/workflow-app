@@ -1,0 +1,89 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: workflow-backend
+  namespace: workflow
+  labels:
+    app: workflow-backend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: workflow-backend
+  template:
+    metadata:
+      labels:
+        app: workflow-backend
+    spec:
+      containers:
+      - name: backend
+        image: workflow-backend:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 3000
+        env:
+        - name: NODE_ENV
+          valueFrom:
+            configMapKeyRef:
+              name: workflow-config
+              key: NODE_ENV
+        - name: PORT
+          valueFrom:
+            configMapKeyRef:
+              name: workflow-config
+              key: PORT
+        - name: DB_NAME
+          valueFrom:
+            configMapKeyRef:
+              name: workflow-config
+              key: DB_NAME
+        - name: DB_USER
+          valueFrom:
+            configMapKeyRef:
+              name: workflow-config
+              key: DB_USER
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: workflow-secret
+              key: DB_PASSWORD
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: workflow-secret
+              key: JWT_SECRET
+        - name: DB_HOST
+          value: "REPLACE_WITH_RDS_ENDPOINT"
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 3000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 3000
+          initialDelaySeconds: 5
+          periodSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: workflow-backend-service
+  namespace: workflow
+spec:
+  selector:
+    app: workflow-backend
+  ports:
+  - protocol: TCP
+    port: 80
+    targetPort: 3000
+  type: ClusterIP
