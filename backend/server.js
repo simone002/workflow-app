@@ -6,8 +6,6 @@ const jwt = require('jsonwebtoken');
 const AWS = require('aws-sdk');
 require('dotenv').config();
 
-// 🎓 BACKEND SEMPLIFICATO PER ESAME
-// ✅ Include: Cognito, SNS, SQS in modo basilare per dimostrare conoscenza
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -41,7 +39,6 @@ const dbConfig = {
 
 const pool = mysql.createPool(dbConfig);
 
-// 🔐 FUNZIONI COGNITO SEMPLIFICATE
 const registerWithCognito = async (email, password) => {
   try {
     const params = {
@@ -68,7 +65,7 @@ const registerWithCognito = async (email, password) => {
     return true;
   } catch (error) {
     console.log(`⚠️ Cognito registration failed: ${error.message}`);
-    return false; // Fallback a registrazione locale
+    return false; 
   }
 };
 
@@ -93,7 +90,6 @@ const loginWithCognito = async (email, password) => {
   }
 };
 
-// 📧 FUNZIONE SNS SEMPLIFICATA
 const sendSNSNotification = async (message, subject = 'Workflow Notification') => {
   try {
     const params = {
@@ -109,7 +105,6 @@ const sendSNSNotification = async (message, subject = 'Workflow Notification') =
   }
 };
 
-// 📤 FUNZIONE SQS SEMPLIFICATA
 const sendToSQS = async (message) => {
   try {
     const params = {
@@ -142,7 +137,6 @@ const authenticateToken = (req, res, next) => {
   });
 };
 
-// 🏥 HEALTH CHECK SEMPLIFICATO
 app.get('/health', async (req, res) => {
   try {
     // Test database
@@ -153,9 +147,9 @@ app.get('/health', async (req, res) => {
       timestamp: new Date().toISOString(),
       services: {
         database: '✅ Connected',
-        cognito: COGNITO_USER_POOL_ID ? '✅ Configured' : '❌ Not configured',
-        sns: SNS_TOPIC_ARN ? '✅ Configured' : '❌ Not configured',
-        sqs: SQS_QUEUE_URL ? '✅ Configured' : '❌ Not configured'
+        cognito: COGNITO_USER_POOL_ID ? '✅ Configured' : ' Not configured',
+        sns: SNS_TOPIC_ARN ? '✅ Configured' : ' Not configured',
+        sqs: SQS_QUEUE_URL ? '✅ Configured' : ' Not configured'
       }
     };
     
@@ -238,7 +232,7 @@ app.post('/api/auth/register', async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('❌ Errore registrazione:', error);
+    console.error(' Errore registrazione:', error);
     res.status(500).json({ error: 'Errore interno del server' });
   }
 });
@@ -309,7 +303,7 @@ app.post('/api/auth/login', async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('❌ Errore login:', error);
+    console.error(' Errore login:', error);
     res.status(500).json({ error: 'Errore interno del server' });
   }
 });
@@ -324,12 +318,12 @@ app.get('/api/tasks', authenticateToken, async (req, res) => {
 
     res.json(tasks);
   } catch (error) {
-    console.error('❌ Errore get tasks:', error);
+    console.error(' Errore get tasks:', error);
     res.status(500).json({ error: 'Errore interno del server' });
   }
 });
 
-// ➕ CREATE TASK (con notifiche)
+//  CREATE TASK (con notifiche)
 app.post('/api/tasks', authenticateToken, async (req, res) => {
   try {
     const { title, description = '', category = '', priority = 'medium', due_date = null } = req.body;
@@ -374,7 +368,7 @@ app.post('/api/tasks', authenticateToken, async (req, res) => {
 
     res.status(201).json(newTask[0]);
   } catch (error) {
-    console.error('❌ Errore create task:', error);
+    console.error(' Errore create task:', error);
     res.status(500).json({ error: 'Errore interno del server' });
   }
 });
@@ -433,7 +427,7 @@ app.put('/api/tasks/:id', authenticateToken, async (req, res) => {
 
     res.json(updatedTask[0]);
   } catch (error) {
-    console.error('❌ Errore update task:', error);
+    console.error(' Errore update task:', error);
     res.status(500).json({ error: 'Errore interno del server' });
   }
 });
@@ -470,7 +464,7 @@ app.delete('/api/tasks/:id', authenticateToken, async (req, res) => {
 
     res.json({ message: 'Task eliminata con successo' });
   } catch (error) {
-    console.error('❌ Errore delete task:', error);
+    console.error(' Errore delete task:', error);
     res.status(500).json({ error: 'Errore interno del server' });
   }
 });
@@ -490,7 +484,7 @@ app.get('/api/stats', authenticateToken, async (req, res) => {
 
     res.json(stats[0]);
   } catch (error) {
-    console.error('❌ Errore stats:', error);
+    console.error(' Errore stats:', error);
     res.status(500).json({ error: 'Errore interno del server' });
   }
 });
@@ -523,7 +517,6 @@ app.get('/api/admin/queue-messages', async (req, res) => {
       }
     });
 
-    // Non eliminare i messaggi per permettere di vederli nella demo
     console.log(`📤 Trovati ${messages.length} messaggi in coda SQS`);
 
     res.json({
@@ -533,12 +526,12 @@ app.get('/api/admin/queue-messages', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('❌ Errore lettura SQS:', error);
+    console.error(' Errore lettura SQS:', error);
     res.status(500).json({ error: 'Errore lettura coda SQS' });
   }
 });
 
-// 📱 ENDPOINT DEMO - Info sui servizi AWS (per presentazione esame)
+// 📱 ENDPOINT DEMO - Info sui servizi AWS 
 app.get('/api/demo/aws-services', async (req, res) => {
   try {
     const services = {
@@ -570,7 +563,7 @@ app.get('/api/demo/aws-services', async (req, res) => {
       await pool.execute('SELECT 1');
       services.rds.connectivity = '✅ Connesso';
     } catch (e) {
-      services.rds.connectivity = '❌ Errore connessione';
+      services.rds.connectivity = ' Errore connessione';
     }
 
     console.log('📋 Richiesta info servizi AWS per demo esame');
@@ -591,12 +584,12 @@ app.get('/api/demo/aws-services', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('❌ Errore demo services:', error);
+    console.error(' Errore demo services:', error);
     res.status(500).json({ error: 'Errore interno del server' });
   }
 });
 
-// Inizializzazione database SEMPLIFICATA
+// Inizializzazione database 
 async function initDatabase() {
   try {
     console.log('🗄️ Inizializzando database...');
@@ -632,7 +625,7 @@ async function initDatabase() {
 
     console.log('✅ Database inizializzato con successo');
   } catch (error) {
-    console.error('❌ Errore inizializzazione database:', error);
+    console.error(' Errore inizializzazione database:', error);
     process.exit(1);
   }
 }

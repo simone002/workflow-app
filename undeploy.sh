@@ -223,7 +223,7 @@ if [ "$ECS_COUNT" = "0" ] && [ "$RDS_STATUS" != "available" ] && [ "$SNS_COUNT" 
     echo "   ❌ SQS Queue"
     echo ""
     echo "🚀 PER RIAVVIARE:"
-    echo "   Usa lo script redeploy.sh"
+    echo "   Usa lo script deploy.sh"
     echo "   Tempo stimato: 15-20 minuti"
     echo ""
 else
@@ -236,8 +236,4 @@ fi
 
 echo "📋 SNAPSHOT CREATO: $SNAPSHOT_ID"
 echo "   (utilizzabile per ripristino dati se necessario)"
-echo ""
-echo "🎓 Pronto per l'esame con costi quasi zero!"
-echo ""
-echo "💡 NOTA: I servizi Cognito, SNS e SQS sono mostly gratuiti"
-echo "   ma sono stati eliminati per pulizia completa"
+

@@ -175,17 +175,17 @@ const Dashboard = () => {
       
       console.log('Sending update data:', updateData);
       
-      // 🚀 Invia la richiesta PUT al backend
+      //  Invia la richiesta PUT al backend
       const response = await tasksAPI.updateTask(task.id, updateData);
       console.log('Backend response:', response.data);
       
-      // ✅ Aggiorna lo stato locale con la risposta del backend
+      // Aggiorna lo stato locale con la risposta del backend
       setTasks(tasks.map(t => t.id === task.id ? response.data : t));
       
-      // 📊 Aggiorna le statistiche
+      //  Aggiorna le statistiche
       fetchStats();
       
-      // 🎉 Feedback di successo
+      //  Feedback di successo
       console.log(`Task "${task.title}" ${response.data.completed ? 'completata' : 'riaperta'}!`);
       
     } catch (error) {

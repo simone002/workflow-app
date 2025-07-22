@@ -29,7 +29,6 @@ dayjs.extend(relativeTime);
 
 const TaskList = ({ tasks, onToggleComplete, onEditTask, onDeleteTask }) => {
   
-  // 🆕 FIXED: Funzione per gestire il toggle del checkbox
   const handleToggleComplete = async (task) => {
     try {
       console.log('Toggling task completion:', task.id, 'from', task.completed, 'to', !task.completed);
@@ -156,7 +155,6 @@ const TaskList = ({ tasks, onToggleComplete, onEditTask, onDeleteTask }) => {
               }}
             >
               <ListItemIcon>
-                {/* 🆕 FIXED: Checkbox con handler corretto */}
                 <Checkbox
                   edge="start"
                   checked={Boolean(task.completed)} // Assicura che sia sempre boolean

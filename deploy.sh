@@ -1,14 +1,13 @@
 #!/bin/bash
 
-# 🚀 DEPLOY WORKFLOW - Con servizi Cognito, SNS, SQS (FIXED)
-# Deploy completo da undeploy parziale con tutti i servizi AWS
+# 🚀 DEPLOY WORKFLOW - Con servizi Cognito, SNS, SQS
 
 set -e
 
 REGION="eu-west-1"
 APP_NAME="workflow"
 
-echo "🚀 Workflow Enhanced Deployment Starting..."
+echo "🚀 Workflow  Deployment Starting..."
 echo "🔄 Deployando tutti i servizi AWS"
 echo "✨ Include: ECS, RDS, Cognito, SNS, SQS"
 echo ""
@@ -101,7 +100,7 @@ else
     echo "✅ SNS Topic creato: $SNS_TOPIC_ARN"
 fi
 
-# Step 3: Crea/Verifica SQS Queue (FIXED)
+# Step 3: Crea/Verifica SQS Queue
 echo ""
 echo "📤 Step 3/8: Configurando SQS Queue..."
 
@@ -116,7 +115,6 @@ if [ "$EXISTING_QUEUES" != "None" ] && [ -n "$EXISTING_QUEUES" ]; then
     SQS_QUEUE_URL="$EXISTING_QUEUES"
     echo "✅ SQS Queue esistente trovata: $SQS_QUEUE_URL"
 else
-    # FIXED: Sintassi corretta per attributi SQS
     SQS_QUEUE_URL=$(aws sqs create-queue \
         --queue-name "${APP_NAME}-tasks" \
         --attributes "VisibilityTimeout=300,MessageRetentionPeriod=1209600,DelaySeconds=0" \
@@ -264,7 +262,7 @@ aws ec2 authorize-security-group-ingress \
     --region $REGION 2>/dev/null && echo "✅ Porta ECS (3000) aperta" || echo "⚠️ Porta ECS già aperta"
 
 
-# Step 5.5: Crea/Verifica Ruolo e Policy IAM (NUOVO BLOCCO)
+# Step 5.5: Crea/Verifica Ruolo e Policy IAM 
 
 echo ""
 echo "🔐 Step 5.5: Configurazione Ruolo e Policy IAM per il Task ECS..."
@@ -632,7 +630,6 @@ echo "   SQS Queue:          $SQS_QUEUE_URL"
 echo "   Database Endpoint:  $DB_ENDPOINT"
 echo ""
 echo "💰 Costi Mensili Stimati: ~$7-11/mese"
-echo "🆓 Free Tier Eligible per 12 mesi"
 echo ""
 echo "🧪 TEST RAPIDI:"
 if [ "$BACKEND_IP" != "N/A" ]; then
