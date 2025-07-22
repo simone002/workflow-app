@@ -28,6 +28,20 @@ dayjs.locale('it');
 dayjs.extend(relativeTime);
 
 const TaskList = ({ tasks, onToggleComplete, onEditTask, onDeleteTask }) => {
+  
+  // 🆕 FIXED: Funzione per gestire il toggle del checkbox
+  const handleToggleComplete = async (task) => {
+    try {
+      console.log('Toggling task completion:', task.id, 'from', task.completed, 'to', !task.completed);
+      
+      // Chiama la funzione passata dal parent component
+      await onToggleComplete(task);
+      
+    } catch (error) {
+      console.error('Error toggling task completion:', error);
+    }
+  };
+
   const getPriorityColor = (priority) => {
     switch (priority) {
       case 'high':
@@ -142,11 +156,15 @@ const TaskList = ({ tasks, onToggleComplete, onEditTask, onDeleteTask }) => {
               }}
             >
               <ListItemIcon>
+                {/* 🆕 FIXED: Checkbox con handler corretto */}
                 <Checkbox
                   edge="start"
-                  checked={task.completed}
-                  onChange={() => onToggleComplete(task)}
+                  checked={Boolean(task.completed)} // Assicura che sia sempre boolean
+                  onChange={() => handleToggleComplete(task)} // Usa la funzione fixed
                   color="primary"
+                  inputProps={{ 
+                    'aria-label': `Mark task "${task.title}" as ${task.completed ? 'incomplete' : 'complete'}` 
+                  }}
                 />
               </ListItemIcon>
               
@@ -165,7 +183,7 @@ const TaskList = ({ tasks, onToggleComplete, onEditTask, onDeleteTask }) => {
                     </Typography>
                     
                     <Chip
-                      label={task.priority}
+                      label={task.priority === 'high' ? 'Alta' : task.priority === 'medium' ? 'Media' : 'Bassa'}
                       size="small"
                       color={getPriorityColor(task.priority)}
                       variant="outlined"

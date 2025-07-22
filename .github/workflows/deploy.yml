@@ -1,0 +1,72 @@
+name: Deploy to AWS
+
+# Questo workflow si attiva ogni volta che fai un push sul branch 'main'
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  # Lavoro per il deploy del backend
+  deploy-backend:
+    name: Deploy Backend to ECS
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout del codice
+        uses: actions/checkout@v3
+
+      - name: Configura le credenziali AWS
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: eu-west-1
+
+      - name: Login a Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
+
+      - name: Build, tag, e push dell'immagine su ECR
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: workflow-backend
+          IMAGE_TAG: latest
+        run: |
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+
+      - name: Esegui lo script di deploy
+        run: |
+          chmod +x ./deploy.sh
+          ./deploy.sh
+
+  # Lavoro per il deploy del frontend
+  deploy-frontend:
+    name: Deploy Frontend to S3
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout del codice
+        uses: actions/checkout@v3
+
+      - name: Configura le credenziali AWS
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: eu-west-1
+      
+      - name: Setup di Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+
+      - name: Installa le dipendenze e builda il frontend
+        run: |
+          cd frontend
+          npm install
+          npm run build
+
+      - name: Deploy su S3
+        run: |
+          BUCKET_NAME=$(aws s3api list-buckets --query 'Buckets[?contains(Name, `workflow-frontend`)].Name' --output text | head -1)
+          aws s3 sync ./frontend/build s3://$BUCKET_NAME

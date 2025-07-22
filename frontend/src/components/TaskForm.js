@@ -78,7 +78,6 @@ const TaskForm = ({ open, onClose, onSubmit, initialData, title }) => {
   const handleSubmit = (e) => {
     e.preventDefault();
     
-    // USA LO STESSO FORMATO IDENTICO CHE FUNZIONA PER CREATE
     const submitData = {
       title: formData.title.trim(),
       description: formData.description.trim(),
@@ -86,13 +85,11 @@ const TaskForm = ({ open, onClose, onSubmit, initialData, title }) => {
       priority: formData.priority,
     };
     
-    // Aggiungi due_date solo se presente
     if (formData.due_date && formData.due_date.isValid()) {
       submitData.due_date = formData.due_date.format('YYYY-MM-DD');
     }
     
-    // NON INVIARE COMPLETED - gestito separatamente dal toggle
-    // Il backend ha validation schema che non accetta completed
+    
     
     console.log('Sending data (identical to CREATE):', submitData);
     onSubmit(submitData);

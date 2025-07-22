@@ -1,0 +1,15 @@
+# WORKFLOW DEMO - Configuration Generated Tue Jul 22 13:08:22 EEST 2025
+
+Backend IP: 54.216.145.223
+Backend URL: http://54.216.145.223:3000
+Frontend URL: http://workflow-frontend-1753117153.s3-website-eu-west-1.amazonaws.com
+
+# Quick Commands
+Health Check: curl http://54.216.145.223:3000/health
+AWS Services: curl http://54.216.145.223:3000/api/demo/aws-services  
+SQS Queue: curl http://54.216.145.223:3000/api/admin/queue-messages
+SNS Test: curl -X POST -H "Content-Type: application/json" -d '{"message":"test"}' http://54.216.145.223:3000/api/demo/test-sns
+SQS Test: curl -X POST -H "Content-Type: application/json" -d '{"message":{"test":true}}' http://54.216.145.223:3000/api/demo/test-sqs
+
+# Demo Dashboard
+Save the HTML dashboard and use Backend URL: http://54.216.145.223:3000

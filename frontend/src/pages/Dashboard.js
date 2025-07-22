@@ -153,40 +153,55 @@ const Dashboard = () => {
     }
   };
 
+  // 🔧 SOSTITUISCI questa funzione nel tuo Dashboard.js
+
   const handleToggleComplete = async (task) => {
     try {
-      // SOLUZIONE TEMPORANEA: Aggiorna solo localmente
-      // Il backend non accetta il campo completed negli UPDATE
+      console.log('Toggling task completion:', task.id, 'from', task.completed, 'to', !task.completed);
       
-      // Aggiorna subito l'interfaccia
-      const updatedTask = { ...task, completed: !task.completed };
-      setTasks(tasks.map(t => t.id === task.id ? updatedTask : t));
-      
-      // Tenta di sincronizzare con il backend (senza completed)
+      // 🎯 Prepara i dati completi per l'update (INCLUDENDO completed)
       const updateData = {
         title: task.title,
-        description: task.description,
-        category: task.category,
-        priority: task.priority,
+        description: task.description || '',
+        category: task.category || '',
+        priority: task.priority || 'medium',
+        completed: !task.completed  // 🔥 QUESTO È IL CAMPO CHIAVE!
       };
       
+      // Aggiungi due_date se esiste
       if (task.due_date) {
         updateData.due_date = task.due_date;
       }
       
-      // Invia update senza completed
-      await tasksAPI.updateTask(task.id, updateData);
+      console.log('Sending update data:', updateData);
       
-      // Aggiorna le statistiche
+      // 🚀 Invia la richiesta PUT al backend
+      const response = await tasksAPI.updateTask(task.id, updateData);
+      console.log('Backend response:', response.data);
+      
+      // ✅ Aggiorna lo stato locale con la risposta del backend
+      setTasks(tasks.map(t => t.id === task.id ? response.data : t));
+      
+      // 📊 Aggiorna le statistiche
       fetchStats();
       
+      // 🎉 Feedback di successo
+      console.log(`Task "${task.title}" ${response.data.completed ? 'completata' : 'riaperta'}!`);
+      
     } catch (error) {
-      // Se fallisce, ripristina lo stato precedente
-      setTasks(tasks.map(t => t.id === task.id ? task : t));
-      setError('Errore nel cambiamento dello stato della task');
       console.error('Error toggling complete:', error);
+      
+      // 🔍 Log dettagliato dell'errore per debug
+      if (error.response) {
+        console.error('Response status:', error.response.status);
+        console.error('Response data:', error.response.data);
+      }
+      
+      setError('Errore nel cambiamento dello stato della task: ' + (error.response?.data?.error || error.message));
     }
   };
+
+  
 
   const handleEditTask = (task) => {
     setEditingTask(task);

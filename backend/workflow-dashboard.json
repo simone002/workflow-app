@@ -1,0 +1,56 @@
+{
+  "widgets": [
+    {
+      "type": "metric",
+      "properties": {
+        "metrics": [
+          ["AWS/ECS", "CPUUtilization", "ServiceName", "workflow-backend-service", "ClusterName", "workflow-cluster"],
+          [".", "MemoryUtilization", ".", ".", ".", "."]
+        ],
+        "period": 300,
+        "stat": "Average",
+        "region": "eu-west-1",
+        "title": "ECS Resource Utilization"
+      }
+    },
+    {
+      "type": "metric",
+      "properties": {
+        "metrics": [
+          ["Workflow/Application", "TotalRequests"],
+          [".", "LoginSuccess"],
+          [".", "LoginFailure"],
+          [".", "TasksCreated"]
+        ],
+        "period": 300,
+        "stat": "Sum",
+        "region": "eu-west-1",
+        "title": "Application Metrics"
+      }
+    },
+    {
+      "type": "metric",
+      "properties": {
+        "metrics": [
+          ["AWS/RDS", "CPUUtilization", "DBInstanceIdentifier", "workflow-db"],
+          [".", "DatabaseConnections", ".", "."],
+          [".", "ReadLatency", ".", "."],
+          [".", "WriteLatency", ".", "."]
+        ],
+        "period": 300,
+        "stat": "Average",
+        "region": "eu-west-1",
+        "title": "RDS Performance"
+      }
+    },
+    {
+      "type": "log",
+      "properties": {
+        "query": "SOURCE '/ecs/workflow-backend'\n| fields @timestamp, @message\n| filter @message like /ERROR/\n| sort @timestamp desc\n| limit 100",
+        "region": "eu-west-1",
+        "title": "Recent Errors",
+        "view": "table"
+      }
+    }
+  ]
+}

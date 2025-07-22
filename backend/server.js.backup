@@ -1,0 +1,337 @@
+const express = require('express');
+const cors = require('cors');
+const helmet = require('helmet');
+const morgan = require('morgan');
+const mysql = require('mysql2/promise');
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
+const Joi = require('joi');
+require('dotenv').config();
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+// Middleware
+app.use(helmet());
+app.use(cors());
+app.use(morgan('combined'));
+app.use(express.json());
+
+// Database connection
+const dbConfig = {
+  host: process.env.DB_HOST || 'localhost',
+  user: process.env.DB_USER || 'root',
+  password: process.env.DB_PASSWORD || '',
+  database: process.env.DB_NAME || 'workflow',
+  waitForConnections: true,
+  connectionLimit: 10,
+  queueLimit: 0
+};
+
+const pool = mysql.createPool(dbConfig);
+
+// JWT middleware
+const authenticateToken = (req, res, next) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+
+  if (!token) {
+    return res.status(401).json({ error: 'Access token required' });
+  }
+
+  jwt.verify(token, process.env.JWT_SECRET || 'fallback-secret', (err, user) => {
+    if (err) return res.status(403).json({ error: 'Invalid token' });
+    req.user = user;
+    next();
+  });
+};
+
+
+
+const taskSchema = Joi.object({
+  title: Joi.string().required().min(1).max(255),
+  description: Joi.string().allow('').max(1000),
+  category: Joi.string().allow('').max(100),
+  priority: Joi.string().valid('low', 'medium', 'high').default('medium'),
+  due_date: Joi.date().allow(null),
+  completed: Joi.boolean().optional()  
+});
+
+const userSchema = Joi.object({
+  username: Joi.string().required().min(3).max(50),
+  email: Joi.string().email().required(),
+  password: Joi.string().required().min(6)
+});
+
+// Routes
+
+// Health check
+app.get('/health', (req, res) => {
+  res.json({ status: 'OK', timestamp: new Date().toISOString() });
+});
+
+// Auth routes
+app.post('/api/auth/register', async (req, res) => {
+  try {
+    const { error } = userSchema.validate(req.body);
+    if (error) return res.status(400).json({ error: error.details[0].message });
+
+    const { username, email, password } = req.body;
+
+    // Check if user exists
+    const [existing] = await pool.execute(
+      'SELECT id FROM users WHERE email = ? OR username = ?',
+      [email, username]
+    );
+
+    if (existing.length > 0) {
+      return res.status(409).json({ error: 'User already exists' });
+    }
+
+    // Hash password
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // Create user
+    const [result] = await pool.execute(
+      'INSERT INTO users (username, email, password, created_at) VALUES (?, ?, ?, NOW())',
+      [username, email, hashedPassword]
+    );
+
+    // Generate token
+    const token = jwt.sign(
+      { userId: result.insertId, username },
+      process.env.JWT_SECRET || 'fallback-secret',
+      { expiresIn: '24h' }
+    );
+
+    res.status(201).json({
+      message: 'User created successfully',
+      token,
+      user: { id: result.insertId, username, email }
+    });
+  } catch (error) {
+    console.error('Registration error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.post('/api/auth/login', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email and password required' });
+    }
+
+    // Find user
+    const [users] = await pool.execute(
+      'SELECT id, username, email, password FROM users WHERE email = ?',
+      [email]
+    );
+
+    if (users.length === 0) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    const user = users[0];
+
+    // Check password
+    const validPassword = await bcrypt.compare(password, user.password);
+    if (!validPassword) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    // Generate token
+    const token = jwt.sign(
+      { userId: user.id, username: user.username },
+      process.env.JWT_SECRET || 'fallback-secret',
+      { expiresIn: '24h' }
+    );
+
+    res.json({
+      message: 'Login successful',
+      token,
+      user: { id: user.id, username: user.username, email: user.email }
+    });
+  } catch (error) {
+    console.error('Login error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Task routes
+app.get('/api/tasks', authenticateToken, async (req, res) => {
+  try {
+    const [tasks] = await pool.execute(
+      'SELECT * FROM tasks WHERE user_id = ? ORDER BY created_at DESC',
+      [req.user.userId]
+    );
+
+    res.json(tasks);
+  } catch (error) {
+    console.error('Get tasks error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.post('/api/tasks', authenticateToken, async (req, res) => {
+  try {
+    // Validazione dei dati con Joi
+    const { error } = taskSchema.validate(req.body);
+    if (error) {
+      return res.status(400).json({ error: error.details[0].message });
+    }
+
+    // Destruttura i dati con fallback di sicurezza
+    const {
+      title,
+      description = '',
+      category = '',
+      priority = 'medium',
+      due_date = null
+    } = req.body;
+
+    // Inserisci nel database
+    const [result] = await pool.execute(
+      `INSERT INTO tasks 
+        (user_id, title, description, category, priority, due_date, created_at) 
+       VALUES (?, ?, ?, ?, ?, ?, NOW())`,
+      [req.user.userId, title, description, category, priority, due_date]
+    );
+
+    // Recupera il task appena inserito
+    const [newTask] = await pool.execute(
+      'SELECT * FROM tasks WHERE id = ?',
+      [result.insertId]
+    );
+
+    // Risposta JSON con task creato
+    res.status(201).json(newTask[0]);
+  } catch (error) {
+    console.error('Create task error:', error); // 🔍 utile nei log ECS
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.put('/api/tasks/:id', authenticateToken, async (req, res) => {
+  try {
+    const { error } = taskSchema.validate(req.body);
+    if (error) return res.status(400).json({ error: error.details[0].message });
+
+    const { title, description, category, priority, due_date, completed } = req.body;
+    const taskId = req.params.id;
+
+    const [result] = await pool.execute(
+      'UPDATE tasks SET title = ?, description = ?, category = ?, priority = ?, due_date = ?, completed = ?, updated_at = NOW() WHERE id = ? AND user_id = ?',
+      [
+        title, 
+        description || '', 
+        category || '', 
+        priority || 'medium', 
+        due_date, 
+        completed !== undefined ? completed : false, 
+        taskId, 
+        req.user.userId
+      ]
+    );
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+
+    const [updatedTask] = await pool.execute(
+      'SELECT * FROM tasks WHERE id = ?',
+      [taskId]
+    );
+
+    res.json(updatedTask[0]);
+  } catch (error) {
+    console.error('Update task error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.delete('/api/tasks/:id', authenticateToken, async (req, res) => {
+  try {
+    const taskId = req.params.id;
+
+    const [result] = await pool.execute(
+      'DELETE FROM tasks WHERE id = ? AND user_id = ?',
+      [taskId, req.user.userId]
+    );
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+
+    res.json({ message: 'Task deleted successfully' });
+  } catch (error) {
+    console.error('Delete task error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Stats route
+app.get('/api/stats', authenticateToken, async (req, res) => {
+  try {
+    const [stats] = await pool.execute(`
+      SELECT 
+        COUNT(*) as total_tasks,
+        SUM(CASE WHEN completed = 1 THEN 1 ELSE 0 END) as completed_tasks,
+        SUM(CASE WHEN completed = 0 THEN 1 ELSE 0 END) as pending_tasks,
+        COUNT(DISTINCT category) as categories_count
+      FROM tasks 
+      WHERE user_id = ?
+    `, [req.user.userId]);
+
+    res.json(stats[0]);
+  } catch (error) {
+    console.error('Stats error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Database initialization
+async function initDatabase() {
+  try {
+    await pool.execute(`
+      CREATE TABLE IF NOT EXISTS users (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        username VARCHAR(50) UNIQUE NOT NULL,
+        email VARCHAR(100) UNIQUE NOT NULL,
+        password VARCHAR(255) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    await pool.execute(`
+      CREATE TABLE IF NOT EXISTS tasks (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id INT NOT NULL,
+        title VARCHAR(255) NOT NULL,
+        description TEXT,
+        category VARCHAR(100),
+        priority ENUM('low', 'medium', 'high') DEFAULT 'medium',
+        completed BOOLEAN DEFAULT FALSE,
+        due_date DATE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      )
+    `);
+
+    console.log('Database initialized successfully');
+  } catch (error) {
+    console.error('Database initialization error:', error);
+    process.exit(1);
+  }
+}
+
+// Start server
+app.listen(PORT, async () => {
+  await initDatabase();
+  console.log(`Server running on port ${PORT}`);
+  console.log(`Health check: http://localhost:${PORT}/health`);
+});
+
+module.exports = app;

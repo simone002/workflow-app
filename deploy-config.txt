@@ -1,0 +1,20 @@
+# Workflow Enhanced Deploy Configuration
+# Generated: Tue Jul 22 15:13:07 EEST 2025
+
+# Application URLs
+Frontend: http://workflow-frontend-1753117153.s3-website-eu-west-1.amazonaws.com
+Backend: http://52.212.87.250:3000
+Health: http://52.212.87.250:3000/health
+
+# AWS Services IDs
+Cognito User Pool: eu-west-1_GqxqOOldu
+Cognito Client: 57dfa9ecq9bgr3lg35ljl3seta  
+SNS Topic: arn:aws:sns:eu-west-1:542088537076:workflow-notifications
+SQS Queue: https://sqs.eu-west-1.amazonaws.com/542088537076/workflow-tasks
+Database: workflow-db.c5s8ycc4qywm.eu-west-1.rds.amazonaws.com
+
+# Quick Commands
+Health Check: curl http://52.212.87.250:3000/health
+View Logs: aws logs tail /ecs/workflow-simple --follow --region eu-west-1
+Stop Services: ./undeploy.sh
+Restart Backend: aws ecs update-service --cluster workflow-cluster --service workflow-backend-service --force-new-deployment --region eu-west-1
