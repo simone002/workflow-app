@@ -1,13 +1,13 @@
 name: Deploy to AWS
 
-# Questo workflow si attiva ogni volta che fai un push sul branch 'main'
+# Questo workflow si attiva ogni volta che fai un push sul branch 'master'
 on:
   push:
     branches:
-      - main
+      - master
 
 jobs:
-  # Lavoro per il deploy del backend
+  
   deploy-backend:
     name: Deploy Backend to ECS
     runs-on: ubuntu-latest
@@ -40,7 +40,6 @@ jobs:
           chmod +x ./deploy.sh
           ./deploy.sh
 
-  # Lavoro per il deploy del frontend
   deploy-frontend:
     name: Deploy Frontend to S3
     runs-on: ubuntu-latest
