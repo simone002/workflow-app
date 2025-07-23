@@ -61,10 +61,10 @@ const registerWithCognito = async (email, password) => {
       Permanent: true
     }).promise();
     
-    console.log(`✅ Utente Cognito creato: ${email}`);
+    console.log(` Utente Cognito creato: ${email}`);
     return true;
   } catch (error) {
-    console.log(`⚠️ Cognito registration failed: ${error.message}`);
+    console.log(` Cognito registration failed: ${error.message}`);
     return false; 
   }
 };
@@ -82,10 +82,10 @@ const loginWithCognito = async (email, password) => {
     };
     
     const result = await cognito.adminInitiateAuth(params).promise();
-    console.log(`✅ Login Cognito riuscito: ${email}`);
+    console.log(` Login Cognito riuscito: ${email}`);
     return result.AuthenticationResult;
   } catch (error) {
-    console.log(`⚠️ Cognito login failed: ${error.message}`);
+    console.log(` Cognito login failed: ${error.message}`);
     return null; // Fallback a login locale
   }
 };
@@ -99,9 +99,9 @@ const sendSNSNotification = async (message, subject = 'Workflow Notification') =
     };
     
     const result = await sns.publish(params).promise();
-    console.log(`📧 SNS notification sent: ${result.MessageId}`);
+    console.log(` SNS notification sent: ${result.MessageId}`);
   } catch (error) {
-    console.log(`⚠️ SNS failed: ${error.message}`);
+    console.log(` SNS failed: ${error.message}`);
   }
 };
 
@@ -113,9 +113,9 @@ const sendToSQS = async (message) => {
     };
     
     const result = await sqs.sendMessage(params).promise();
-    console.log(`📤 SQS message sent: ${result.MessageId}`);
+    console.log(` SQS message sent: ${result.MessageId}`);
   } catch (error) {
-    console.log(`⚠️ SQS failed: ${error.message}`);
+    console.log(` SQS failed: ${error.message}`);
   }
 };
 
@@ -146,10 +146,10 @@ app.get('/health', async (req, res) => {
       status: 'healthy',
       timestamp: new Date().toISOString(),
       services: {
-        database: '✅ Connected',
-        cognito: COGNITO_USER_POOL_ID ? '✅ Configured' : ' Not configured',
-        sns: SNS_TOPIC_ARN ? '✅ Configured' : ' Not configured',
-        sqs: SQS_QUEUE_URL ? '✅ Configured' : ' Not configured'
+        database: ' Connected',
+        cognito: COGNITO_USER_POOL_ID ? ' Configured' : ' Not configured',
+        sns: SNS_TOPIC_ARN ? ' Configured' : ' Not configured',
+        sqs: SQS_QUEUE_URL ? ' Configured' : ' Not configured'
       }
     };
     
@@ -159,7 +159,7 @@ app.get('/health', async (req, res) => {
   }
 });
 
-// 📝 REGISTRAZIONE UTENTE (con Cognito + fallback)
+//  REGISTRAZIONE UTENTE (con Cognito + fallback)
 app.post('/api/auth/register', async (req, res) => {
   try {
     const { username, email, password } = req.body;
@@ -183,7 +183,7 @@ app.post('/api/auth/register', async (req, res) => {
       return res.status(409).json({ error: 'Utente già esistente' });
     }
 
-    // 🔐 Prova registrazione Cognito
+    //  Prova registrazione Cognito
     const cognitoSuccess = await registerWithCognito(email, password);
 
     // Hash password per database locale
@@ -202,7 +202,7 @@ app.post('/api/auth/register', async (req, res) => {
       { expiresIn: '24h' }
     );
 
-    // 📧 Invia notifica SNS
+    //  Invia notifica SNS
     await sendSNSNotification({
       type: 'user_registered',
       username,
@@ -210,7 +210,7 @@ app.post('/api/auth/register', async (req, res) => {
       timestamp: new Date().toISOString()
     }, 'Nuova Registrazione Utente');
 
-    // 📤 Invia evento a SQS
+    //  Invia evento a SQS
     await sendToSQS({
       event: 'user_registered',
       userId: result.insertId,
@@ -258,7 +258,7 @@ app.post('/api/auth/login', async (req, res) => {
 
     const user = users[0];
 
-    // 🔐 Prova login Cognito se abilitato
+    //  Prova login Cognito se abilitato
     let cognitoResult = null;
     if (user.cognito_enabled) {
       cognitoResult = await loginWithCognito(email, password);
@@ -282,7 +282,7 @@ app.post('/api/auth/login', async (req, res) => {
       { expiresIn: '24h' }
     );
 
-    // 📤 Invia evento login a SQS
+    //  Invia evento login a SQS
     await sendToSQS({
       event: 'user_login',
       userId: user.id,
@@ -342,7 +342,7 @@ app.post('/api/tasks', authenticateToken, async (req, res) => {
       [result.insertId]
     );
 
-    // 📧 Notifica SNS per task ad alta priorità
+    //  Notifica SNS per task ad alta priorità
     if (priority === 'high') {
       await sendSNSNotification({
         type: 'high_priority_task',
@@ -353,7 +353,7 @@ app.post('/api/tasks', authenticateToken, async (req, res) => {
       }, 'Task Alta Priorità Creata');
     }
 
-    // 📤 Invia a SQS per processing
+    //  Invia a SQS per processing
     await sendToSQS({
       event: 'task_created',
       taskId: result.insertId,
@@ -364,7 +364,7 @@ app.post('/api/tasks', authenticateToken, async (req, res) => {
       timestamp: new Date().toISOString()
     });
 
-    console.log(`📝 Nuova task: ${title} (${priority})`);
+    console.log(` Nuova task: ${title} (${priority})`);
 
     res.status(201).json(newTask[0]);
   } catch (error) {
@@ -397,7 +397,7 @@ app.put('/api/tasks/:id', authenticateToken, async (req, res) => {
       [title || taskTitle, description || '', category || '', priority || 'medium', due_date, completed || false, taskId, req.user.userId]
     );
 
-    // 📧 Notifica completamento task
+    //  Notifica completamento task
     if (!wasCompleted && completed) {
       await sendSNSNotification({
         type: 'task_completed',
@@ -407,10 +407,10 @@ app.put('/api/tasks/:id', authenticateToken, async (req, res) => {
         timestamp: new Date().toISOString()
       }, 'Task Completata');
 
-      console.log(`✅ Task completata: ${title || taskTitle}`);
+      console.log(` Task completata: ${title || taskTitle}`);
     }
 
-    // 📤 Invia evento a SQS
+    //  Invia evento a SQS
     await sendToSQS({
       event: completed && !wasCompleted ? 'task_completed' : 'task_updated',
       taskId: parseInt(taskId),
@@ -451,7 +451,7 @@ app.delete('/api/tasks/:id', authenticateToken, async (req, res) => {
       [taskId, req.user.userId]
     );
 
-    // 📤 Invia evento eliminazione a SQS
+    //  Invia evento eliminazione a SQS
     await sendToSQS({
       event: 'task_deleted',
       taskId: parseInt(taskId),
@@ -469,7 +469,7 @@ app.delete('/api/tasks/:id', authenticateToken, async (req, res) => {
   }
 });
 
-// 📊 STATISTICHE UTENTE
+//  STATISTICHE UTENTE
 app.get('/api/stats', authenticateToken, async (req, res) => {
   try {
     const [stats] = await pool.execute(`
@@ -517,7 +517,7 @@ app.get('/api/admin/queue-messages', async (req, res) => {
       }
     });
 
-    console.log(`📤 Trovati ${messages.length} messaggi in coda SQS`);
+    console.log(` Trovati ${messages.length} messaggi in coda SQS`);
 
     res.json({
       queueUrl: SQS_QUEUE_URL,
@@ -531,7 +531,7 @@ app.get('/api/admin/queue-messages', async (req, res) => {
   }
 });
 
-// 📱 ENDPOINT DEMO - Info sui servizi AWS 
+//  ENDPOINT DEMO - Info sui servizi AWS 
 app.get('/api/demo/aws-services', async (req, res) => {
   try {
     const services = {
@@ -561,7 +561,7 @@ app.get('/api/demo/aws-services', async (req, res) => {
     // Test connettività servizi
     try {
       await pool.execute('SELECT 1');
-      services.rds.connectivity = '✅ Connesso';
+      services.rds.connectivity = ' Connesso';
     } catch (e) {
       services.rds.connectivity = ' Errore connessione';
     }
@@ -623,7 +623,7 @@ async function initDatabase() {
       )
     `);
 
-    console.log('✅ Database inizializzato con successo');
+    console.log(' Database inizializzato con successo');
   } catch (error) {
     console.error(' Errore inizializzazione database:', error);
     process.exit(1);
@@ -632,12 +632,12 @@ async function initDatabase() {
 
 // Gestione errori globali
 process.on('uncaughtException', (error) => {
-  console.error('💥 Uncaught Exception:', error);
+  console.error(' Uncaught Exception:', error);
   process.exit(1);
 });
 
 process.on('unhandledRejection', (reason, promise) => {
-  console.error('💥 Unhandled Rejection at:', promise, 'reason:', reason);
+  console.error(' Unhandled Rejection at:', promise, 'reason:', reason);
   process.exit(1);
 });
 
@@ -645,13 +645,13 @@ process.on('unhandledRejection', (reason, promise) => {
 app.listen(PORT, async () => {
   await initDatabase();
   
-  console.log(`✅ Workflow Backend started on port ${PORT}`);
-  console.log(`🏥 Health: http://localhost:${PORT}/health`);
+  console.log(` Workflow Backend started on port ${PORT}`);
+  console.log(` Health: http://localhost:${PORT}/health`);
   
   // Log servizi AWS se configurati
-  if (COGNITO_USER_POOL_ID) console.log(`🔐 Cognito: ${COGNITO_USER_POOL_ID}`);
-  if (SNS_TOPIC_ARN) console.log(`📧 SNS: ${SNS_TOPIC_ARN}`);
-  if (SQS_QUEUE_URL) console.log(`📤 SQS: ${SQS_QUEUE_URL}`);
+  if (COGNITO_USER_POOL_ID) console.log(` Cognito: ${COGNITO_USER_POOL_ID}`);
+  if (SNS_TOPIC_ARN) console.log(` SNS: ${SNS_TOPIC_ARN}`);
+  if (SQS_QUEUE_URL) console.log(` SQS: ${SQS_QUEUE_URL}`);
 });
 
 module.exports = app;

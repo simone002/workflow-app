@@ -100,3 +100,4 @@ jobs:
           
           echo "Deployment summary:"
           cat deploy-config.txt
+          # Display frontend URL
