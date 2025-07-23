@@ -7,7 +7,7 @@ on:
       - master
 
 jobs:
-  
+  # Lavoro per il deploy del backend
   deploy-backend:
     name: Deploy Backend to ECS
     runs-on: ubuntu-latest
@@ -32,7 +32,8 @@ jobs:
           ECR_REPOSITORY: workflow-backend
           IMAGE_TAG: latest
         run: |
-          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          # CORREZIONE QUI: Aggiunto ./backend come contesto della build
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG ./backend
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
 
       - name: Esegui lo script di deploy
@@ -40,6 +41,7 @@ jobs:
           chmod +x ./deploy.sh
           ./deploy.sh
 
+  # Lavoro per il deploy del frontend
   deploy-frontend:
     name: Deploy Frontend to S3
     runs-on: ubuntu-latest
@@ -68,4 +70,4 @@ jobs:
       - name: Deploy su S3
         run: |
           BUCKET_NAME=$(aws s3api list-buckets --query 'Buckets[?contains(Name, `workflow-frontend`)].Name' --output text | head -1)
-          aws s3 sync ./frontend/build s3://$BUCKET_NAME
+          aws s3 sync ./frontend/build s3://$BUCKET_NAME --delete
