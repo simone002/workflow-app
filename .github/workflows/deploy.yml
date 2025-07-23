@@ -1,13 +1,11 @@
 name: Deploy to AWS
 
-# Questo workflow si attiva ogni volta che fai un push sul branch 'master'
 on:
   push:
     branches:
       - master
 
 jobs:
-  # Lavoro per il deploy del backend
   deploy-backend:
     name: Deploy Backend to ECS
     runs-on: ubuntu-latest
@@ -22,6 +20,22 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: eu-west-1
 
+      # --- NUOVO STEP DI DEBUG ---
+      - name: Debug delle variabili d'ambiente
+        run: |
+          echo "--- Inizio Debug Variabili ---"
+          REGION="eu-west-1"
+          DB_ENDPOINT=$(aws rds describe-db-instances --db-instance-identifier workflow-db --query 'DBInstances[0].Endpoint.Address' --output text --region $REGION || echo "ERRORE_RDS")
+          USER_POOL_ID=$(aws cognito-idp list-user-pools --max-results 10 --query "UserPools[?contains(Name, 'workflow-users')].Id" --output text --region $REGION | head -n1 || echo "ERRORE_COGNITO")
+          SNS_TOPIC_ARN=$(aws sns list-topics --query "Topics[?contains(TopicArn, 'workflow-notifications')].TopicArn" --output text --region $REGION || echo "ERRORE_SNS")
+          SQS_QUEUE_URL=$(aws sqs get-queue-url --queue-name workflow-tasks --query QueueUrl --output text --region $REGION || echo "ERRORE_SQS")
+          
+          echo "DEBUG: DB_ENDPOINT = $DB_ENDPOINT"
+          echo "DEBUG: USER_POOL_ID = $USER_POOL_ID"
+          echo "DEBUG: SNS_TOPIC_ARN = $SNS_TOPIC_ARN"
+          echo "DEBUG: SQS_QUEUE_URL = $SQS_QUEUE_URL"
+          echo "--- Fine Debug Variabili ---"
+
       - name: Login a Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v1
@@ -32,7 +46,6 @@ jobs:
           ECR_REPOSITORY: workflow-backend
           IMAGE_TAG: latest
         run: |
-          # CORREZIONE QUI: Aggiunto ./backend come contesto della build
           docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG ./backend
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
 
@@ -41,7 +54,7 @@ jobs:
           chmod +x ./deploy.sh
           ./deploy.sh
 
-  # Lavoro per il deploy del frontend
+# Il job del frontend rimane invariato
   deploy-frontend:
     name: Deploy Frontend to S3
     runs-on: ubuntu-latest
