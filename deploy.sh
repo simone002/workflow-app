@@ -667,3 +667,21 @@ EOF
 echo ""
 echo "📝 Configurazione salvata in: deploy-config.txt"
 echo "🗑️ Per spegnere e risparmiare: ./undeploy.sh"
+
+
+echo ""
+echo "📝 Formattazione file di configurazione per CI/CD..."
+
+cat << EOF > deploy-config-formatted.txt
+# Workflow Deploy Configuration - CI/CD Compatible
+Frontend: ${FRONTEND_URL:-N/A}
+Backend: http://$BACKEND_IP:3000
+Health: http://$BACKEND_IP:3000/health
+Cognito User Pool: $USER_POOL_ID
+Cognito Client: $USER_POOL_CLIENT_ID  
+SNS Topic: $SNS_TOPIC_ARN
+SQS Queue: $SQS_QUEUE_URL
+Database: $DB_ENDPOINT
+EOF
+
+cp deploy-config-formatted.txt deploy-config.txt

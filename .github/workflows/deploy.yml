@@ -1,101 +1,428 @@
-name: Deploy to AWS
+name: Deploy Workflow App to AWS
 
 on:
   push:
-    branches:
-      - master
+    branches: [ master, main ]
+  workflow_dispatch:  # Permette deploy manuale
+
+env:
+  AWS_REGION: eu-west-1
+  APP_NAME: workflow
 
 jobs:
-  deploy-backend:
-    name: Deploy Backend to ECS
+  # Job 1: Deploy Infrastructure e Backend
+  deploy-infrastructure:
+    name: Deploy Infrastructure & Backend
     runs-on: ubuntu-latest
     outputs:
-      backend_ip: ${{ steps.get_ip.outputs.ip }}
-      aws_region: eu-west-1
-      cognito_pool_id: ${{ steps.get_cognito_pool.outputs.pool_id }}
-      cognito_client_id: ${{ steps.get_cognito_client.outputs.client_id }}
+      backend_ip: ${{ steps.extract_config.outputs.backend_ip }}
+      cognito_pool_id: ${{ steps.extract_config.outputs.cognito_pool_id }}
+      cognito_client_id: ${{ steps.extract_config.outputs.cognito_client_id }}
+      sns_topic_arn: ${{ steps.extract_config.outputs.sns_topic_arn }}
+      sqs_queue_url: ${{ steps.extract_config.outputs.sqs_queue_url }}
+      deployment_success: ${{ steps.extract_config.outputs.deployment_success }}
 
     steps:
-      - name: Checkout del codice
-        uses: actions/checkout@v3
+      - name: 📂 Checkout Repository
+        uses: actions/checkout@v4
 
-      - name: Configura le credenziali AWS
-        uses: aws-actions/configure-aws-credentials@v2
+      - name: 🔑 Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: eu-west-1
+          aws-region: ${{ env.AWS_REGION }}
 
-      - name: Login a Amazon ECR
+      - name: 🐳 Login to Amazon ECR
         id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v1
+        uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Build, tag, e push dell'immagine su ECR
+      - name: 🏗️ Build and Push Docker Image
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           ECR_REPOSITORY: workflow-backend
-          IMAGE_TAG: latest
+          IMAGE_TAG: ${{ github.sha }}
         run: |
+          echo "🏗️ Building Docker image..."
+          
+          # Verifica che esista il backend
+          if [ ! -d "backend" ]; then
+            echo "❌ Directory backend non trovata!"
+            exit 1
+          fi
+          
+          # Build dell'immagine
           docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG ./backend
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:latest ./backend
+          
+          # Push su ECR
+          echo "📤 Pushing to ECR..."
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+          
+          echo "✅ Docker image pushed successfully"
 
-      - name: Esegui lo script di deploy
+      - name: 🚀 Run Enhanced Deploy Script
         run: |
+          echo "🚀 Starting infrastructure deployment..."
+          
+          # Rende eseguibile lo script
           chmod +x ./deploy.sh
-          ./deploy.sh
-      
-      # --- COMANDI CORRETTI CON AWK ---
-      - name: Get Backend IP
-        id: get_ip
-        run: echo "ip=$(grep 'Backend API:' deploy-config.txt | awk '{print $NF}' | sed 's|http://||' | cut -d':' -f1)" >> $GITHUB_OUTPUT
+          
+          # Esegue il deploy con timeout
+          timeout 1800 ./deploy.sh || {
+            echo "❌ Deploy script timed out or failed"
+            exit 1
+          }
+          
+          echo "✅ Deploy script completed"
 
-      - name: Get Cognito Pool ID
-        id: get_cognito_pool
-        run: echo "pool_id=$(grep 'Cognito User Pool:' deploy-config.txt | awk '{print $NF}')" >> $GITHUB_OUTPUT
-        
-      - name: Get Cognito Client ID
-        id: get_cognito_client
-        run: echo "client_id=$(grep 'Cognito Client:' deploy-config.txt | awk '{print $NF}')" >> $GITHUB_OUTPUT
+      - name: ⏳ Wait for Backend Readiness
+        run: |
+          echo "⏳ Waiting for backend to be fully ready..."
+          
+          # Estrae l'IP dal file di configurazione
+          if [ ! -f "deploy-config.txt" ]; then
+            echo "❌ deploy-config.txt not found!"
+            exit 1
+          fi
+          
+          BACKEND_IP=$(grep "Backend:" deploy-config.txt | awk '{print $2}' | sed 's|http://||' | cut -d':' -f1)
+          
+          if [ -z "$BACKEND_IP" ] || [ "$BACKEND_IP" = "N/A" ]; then
+            echo "❌ Backend IP not found or invalid!"
+            cat deploy-config.txt
+            exit 1
+          fi
+          
+          echo "🔍 Testing backend at: $BACKEND_IP:3000"
+          
+          # Test di connettività con retry
+          MAX_ATTEMPTS=30
+          ATTEMPT=1
+          
+          while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
+            echo "📡 Attempt $ATTEMPT/$MAX_ATTEMPTS - Testing backend connectivity..."
+            
+            if curl -f -s --connect-timeout 10 --max-time 30 "http://$BACKEND_IP:3000/health"; then
+              echo "✅ Backend is responding!"
+              
+              # Test aggiuntivo per l'endpoint API
+              if curl -f -s --connect-timeout 10 --max-time 30 "http://$BACKEND_IP:3000/api/demo/aws-services"; then
+                echo "✅ Backend API endpoints are working!"
+                break
+              else
+                echo "⚠️ Health check OK but API endpoints not ready yet..."
+              fi
+            else
+              echo "❌ Backend not responding yet..."
+            fi
+            
+            if [ $ATTEMPT -eq $MAX_ATTEMPTS ]; then
+              echo "❌ Backend failed to start after $MAX_ATTEMPTS attempts"
+              
+              # Debug info
+              echo "🔍 Debug Information:"
+              echo "Backend IP: $BACKEND_IP"
+              cat deploy-config.txt
+              
+              # Check ECS service status
+              aws ecs describe-services \
+                --cluster workflow-cluster \
+                --services workflow-backend-service \
+                --query 'services[0].{Status:status,Running:runningCount,Desired:desiredCount}' \
+                --output table
+              
+              exit 1
+            fi
+            
+            sleep 20
+            ATTEMPT=$((ATTEMPT + 1))
+          done
 
+      - name: 📋 Extract Configuration
+        id: extract_config
+        run: |
+          echo "📋 Extracting deployment configuration..."
+          
+          if [ ! -f "deploy-config.txt" ]; then
+            echo "❌ Configuration file not found!"
+            exit 1
+          fi
+          
+          # Debug: mostra il contenuto del file
+          echo "📄 Configuration file contents:"
+          cat deploy-config.txt
+          echo "---"
+          
+          # Estrazione delle variabili
+          BACKEND_IP=$(grep "Backend:" deploy-config.txt | awk '{print $2}' | sed 's|http://||' | cut -d':' -f1)
+          COGNITO_POOL_ID=$(grep "Cognito User Pool:" deploy-config.txt | awk '{print $4}')
+          COGNITO_CLIENT_ID=$(grep "Cognito Client:" deploy-config.txt | awk '{print $3}')
+          SNS_TOPIC_ARN=$(grep "SNS Topic:" deploy-config.txt | awk '{print $3}')
+          SQS_QUEUE_URL=$(grep "SQS Queue:" deploy-config.txt | awk '{print $3}')
+          
+          # Validazione
+          if [ -z "$BACKEND_IP" ] || [ "$BACKEND_IP" = "N/A" ]; then
+            echo "❌ Invalid backend IP: '$BACKEND_IP'"
+            exit 1
+          fi
+          
+          if [ -z "$COGNITO_POOL_ID" ]; then
+            echo "❌ Missing Cognito Pool ID"
+            exit 1
+          fi
+          
+          # Output delle variabili
+          echo "backend_ip=$BACKEND_IP" >> $GITHUB_OUTPUT
+          echo "cognito_pool_id=$COGNITO_POOL_ID" >> $GITHUB_OUTPUT
+          echo "cognito_client_id=$COGNITO_CLIENT_ID" >> $GITHUB_OUTPUT
+          echo "sns_topic_arn=$SNS_TOPIC_ARN" >> $GITHUB_OUTPUT
+          echo "sqs_queue_url=$SQS_QUEUE_URL" >> $GITHUB_OUTPUT
+          echo "deployment_success=true" >> $GITHUB_OUTPUT
+          
+          echo "✅ Configuration extracted successfully:"
+          echo "   Backend IP: $BACKEND_IP"
+          echo "   Cognito Pool: $COGNITO_POOL_ID"
+          echo "   Cognito Client: $COGNITO_CLIENT_ID"
+
+      - name: 📤 Upload Deployment Config
+        uses: actions/upload-artifact@v4
+        with:
+          name: deployment-config
+          path: deploy-config.txt
+          retention-days: 1
+
+  # Job 2: Deploy Frontend
   deploy-frontend:
     name: Deploy Frontend to S3
     runs-on: ubuntu-latest
-    needs: deploy-backend
+    needs: deploy-infrastructure
+    if: needs.deploy-infrastructure.outputs.deployment_success == 'true'
+    
     steps:
-      - name: Checkout del codice
-        uses: actions/checkout@v3
+      - name: 📂 Checkout Repository
+        uses: actions/checkout@v4
 
-      - name: Configura le credenziali AWS
-        uses: aws-actions/configure-aws-credentials@v2
+      - name: 📥 Download Deployment Config
+        uses: actions/download-artifact@v4
+        with:
+          name: deployment-config
+
+      - name: 🔑 Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ needs.deploy-backend.outputs.aws_region }}
-      
-      - name: Setup di Node.js
-        uses: actions/setup-node@v3
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: 🟢 Setup Node.js
+        uses: actions/setup-node@v4
         with:
           node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
 
-      - name: Create .env file for Frontend
+      - name: 📋 Create Frontend Environment File
         run: |
-          echo "REACT_APP_API_URL=http://${{ needs.deploy-backend.outputs.backend_ip }}:3000" >> ./frontend/.env
-          echo "REACT_APP_AWS_REGION=${{ needs.deploy-backend.outputs.aws_region }}" >> ./frontend/.env
-          echo "REACT_APP_COGNITO_USER_POOL_ID=${{ needs.deploy-backend.outputs.cognito_pool_id }}" >> ./frontend/.env
-          echo "REACT_APP_COGNITO_CLIENT_ID=${{ needs.deploy-backend.outputs.cognito_client_id }}" >> ./frontend/.env
-          echo "GENERATE_SOURCEMAP=false" >> ./frontend/.env
-          echo "SKIP_PREFLIGHT_CHECK=true" >> ./frontend/.env
+          echo "📋 Creating frontend .env file..."
           
-          echo "File .env del frontend creato con successo."
-          cat ./frontend/.env
+          # Crea la directory se non esiste
+          mkdir -p frontend
+          
+          # Crea il file .env
+          cat > frontend/.env << EOF
+          REACT_APP_API_URL=http://${{ needs.deploy-infrastructure.outputs.backend_ip }}:3000
+          REACT_APP_AWS_REGION=${{ env.AWS_REGION }}
+          REACT_APP_COGNITO_USER_POOL_ID=${{ needs.deploy-infrastructure.outputs.cognito_pool_id }}
+          REACT_APP_COGNITO_CLIENT_ID=${{ needs.deploy-infrastructure.outputs.cognito_client_id }}
+          GENERATE_SOURCEMAP=false
+          SKIP_PREFLIGHT_CHECK=true
+          PUBLIC_URL=/
+          EOF
+          
+          echo "✅ Frontend .env created:"
+          cat frontend/.env
 
-      - name: Installa le dipendenze e builda il frontend
+      - name: 📦 Install Frontend Dependencies
         run: |
+          echo "📦 Installing frontend dependencies..."
           cd frontend
-          npm install
-          npm run build
+          
+          # Verifica che package.json esista
+          if [ ! -f "package.json" ]; then
+            echo "❌ package.json not found in frontend directory!"
+            exit 1
+          fi
+          
+          npm ci --only=production
+          echo "✅ Dependencies installed"
 
-      - name: Deploy su S3
+      - name: 🏗️ Build Frontend
         run: |
-          BUCKET_NAME=$(aws s3api list-buckets --query 'Buckets[?contains(Name, `workflow-frontend`)].Name' --output text | head -1)
-          aws s3 sync ./frontend/build s3://$BUCKET_NAME --delete
+          echo "🏗️ Building frontend application..."
+          cd frontend
+          
+          # Build con timeout
+          timeout 600 npm run build || {
+            echo "❌ Frontend build timed out or failed"
+            exit 1
+          }
+          
+          # Verifica che la build sia stata creata
+          if [ ! -d "build" ]; then
+            echo "❌ Build directory not created!"
+            exit 1
+          fi
+          
+          echo "✅ Frontend built successfully"
+          ls -la build/
+
+      - name: 🌐 Deploy to S3
+        run: |
+          echo "🌐 Deploying frontend to S3..."
+          
+          # Trova il bucket S3
+          BUCKET_NAME=$(aws s3api list-buckets \
+            --query 'Buckets[?contains(Name, `workflow-frontend`)].Name' \
+            --output text | head -1)
+          
+          if [ -z "$BUCKET_NAME" ]; then
+            echo "❌ S3 bucket not found! Creating one..."
+            
+            # Crea un bucket con un nome unico
+            BUCKET_NAME="workflow-frontend-$(date +%s)"
+            aws s3 mb s3://$BUCKET_NAME --region ${{ env.AWS_REGION }}
+            
+            # Configura come static website
+            aws s3 website s3://$BUCKET_NAME \
+              --index-document index.html \
+              --error-document error.html
+            
+            echo "✅ S3 bucket created: $BUCKET_NAME"
+          else
+            echo "✅ Using existing S3 bucket: $BUCKET_NAME"
+          fi
+          
+          # Sync dei file
+          aws s3 sync ./frontend/build s3://$BUCKET_NAME \
+            --delete \
+            --cache-control "public, max-age=31536000" \
+            --exclude "*.html" \
+            --exclude "service-worker.js"
+          
+          # Upload HTML files senza cache
+          aws s3 sync ./frontend/build s3://$BUCKET_NAME \
+            --exclude "*" \
+            --include "*.html" \
+            --include "service-worker.js" \
+            --cache-control "no-cache, no-store, must-revalidate"
+          
+          # URL del sito
+          FRONTEND_URL="http://${BUCKET_NAME}.s3-website-${{ env.AWS_REGION }}.amazonaws.com"
+          
+          echo "✅ Frontend deployed successfully!"
+          echo "🌐 Frontend URL: $FRONTEND_URL"
+          
+          # Salva l'URL per riferimento futuro
+          echo "FRONTEND_URL=$FRONTEND_URL" >> $GITHUB_ENV
+
+  # Job 3: Verification and Summary
+  verify-deployment:
+    name: Verify Deployment
+    runs-on: ubuntu-latest
+    needs: [deploy-infrastructure, deploy-frontend]
+    if: always()
+    
+    steps:
+      - name: 📥 Download Deployment Config
+        uses: actions/download-artifact@v4
+        with:
+          name: deployment-config
+
+      - name: 🔑 Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: 🧪 Run Deployment Tests
+        run: |
+          echo "🧪 Running deployment verification tests..."
+          
+          BACKEND_IP="${{ needs.deploy-infrastructure.outputs.backend_ip }}"
+          
+          if [ -z "$BACKEND_IP" ] || [ "$BACKEND_IP" = "N/A" ]; then
+            echo "❌ Backend IP not available for testing"
+            exit 1
+          fi
+          
+          echo "🔍 Testing backend endpoints..."
+          
+          # Test health endpoint
+          if curl -f -s --connect-timeout 10 "http://$BACKEND_IP:3000/health"; then
+            echo "✅ Health endpoint OK"
+          else
+            echo "❌ Health endpoint failed"
+            exit 1
+          fi
+          
+          # Test AWS services endpoint
+          if curl -f -s --connect-timeout 10 "http://$BACKEND_IP:3000/api/demo/aws-services"; then
+            echo "✅ AWS services endpoint OK"
+          else
+            echo "⚠️ AWS services endpoint failed (might be normal during startup)"
+          fi
+          
+          echo "✅ Backend verification completed"
+
+      - name: 📊 Deployment Summary
+        if: always()
+        run: |
+          echo "📊 DEPLOYMENT SUMMARY"
+          echo "===================="
+          echo ""
+          
+          if [ "${{ needs.deploy-infrastructure.result }}" = "success" ]; then
+            echo "✅ Infrastructure: SUCCESS"
+            echo "   Backend IP: ${{ needs.deploy-infrastructure.outputs.backend_ip }}"
+            echo "   Cognito Pool: ${{ needs.deploy-infrastructure.outputs.cognito_pool_id }}"
+          else
+            echo "❌ Infrastructure: FAILED"
+          fi
+          
+          if [ "${{ needs.deploy-frontend.result }}" = "success" ]; then
+            echo "✅ Frontend: SUCCESS"
+          else
+            echo "❌ Frontend: FAILED"
+          fi
+          
+          echo ""
+          echo "🔗 QUICK ACCESS:"
+          if [ -f "deploy-config.txt" ]; then
+            cat deploy-config.txt
+          fi
+          
+          echo ""
+          echo "🎯 Next Steps:"
+          echo "1. Test the application endpoints"
+          echo "2. Check CloudWatch logs if issues occur"
+          echo "3. Use './undeploy.sh' to save costs when done"
+
+      - name: 🚨 Notify on Failure
+        if: failure()
+        run: |
+          echo "🚨 DEPLOYMENT FAILED!"
+          echo "Check the logs above for specific error details."
+          echo ""
+          echo "Common issues:"
+          echo "- AWS credentials not properly configured"
+          echo "- ECR repository doesn't exist"
+          echo "- ECS service failed to start"
+          echo "- Frontend build errors"
+          echo ""
+          echo "Troubleshooting:"
+          echo "1. Check AWS service quotas"
+          echo "2. Verify all required AWS services are available in the region"
+          echo "3. Check CloudWatch logs for detailed error messages"
