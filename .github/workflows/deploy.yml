@@ -6,9 +6,17 @@ on:
       - master
 
 jobs:
+  # Lavoro per il deploy del backend
   deploy-backend:
     name: Deploy Backend to ECS
     runs-on: ubuntu-latest
+    # Aggiungiamo un output per passare l'IP al job successivo
+    outputs:
+      backend_ip: ${{ steps.get_ip.outputs.ip }}
+      aws_region: eu-west-1
+      cognito_pool_id: ${{ steps.get_cognito_pool.outputs.pool_id }}
+      cognito_client_id: ${{ steps.get_cognito_client.outputs.client_id }}
+
     steps:
       - name: Checkout del codice
         uses: actions/checkout@v3
@@ -19,22 +27,6 @@ jobs:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: eu-west-1
-
-      # --- NUOVO STEP DI DEBUG ---
-      - name: Debug delle variabili d'ambiente
-        run: |
-          echo "--- Inizio Debug Variabili ---"
-          REGION="eu-west-1"
-          DB_ENDPOINT=$(aws rds describe-db-instances --db-instance-identifier workflow-db --query 'DBInstances[0].Endpoint.Address' --output text --region $REGION || echo "ERRORE_RDS")
-          USER_POOL_ID=$(aws cognito-idp list-user-pools --max-results 10 --query "UserPools[?contains(Name, 'workflow-users')].Id" --output text --region $REGION | head -n1 || echo "ERRORE_COGNITO")
-          SNS_TOPIC_ARN=$(aws sns list-topics --query "Topics[?contains(TopicArn, 'workflow-notifications')].TopicArn" --output text --region $REGION || echo "ERRORE_SNS")
-          SQS_QUEUE_URL=$(aws sqs get-queue-url --queue-name workflow-tasks --query QueueUrl --output text --region $REGION || echo "ERRORE_SQS")
-          
-          echo "DEBUG: DB_ENDPOINT = $DB_ENDPOINT"
-          echo "DEBUG: USER_POOL_ID = $USER_POOL_ID"
-          echo "DEBUG: SNS_TOPIC_ARN = $SNS_TOPIC_ARN"
-          echo "DEBUG: SQS_QUEUE_URL = $SQS_QUEUE_URL"
-          echo "--- Fine Debug Variabili ---"
 
       - name: Login a Amazon ECR
         id: login-ecr
@@ -53,11 +45,26 @@ jobs:
         run: |
           chmod +x ./deploy.sh
           ./deploy.sh
+      
+      # NUOVI STEP: Leggiamo i dati dal file di configurazione creato dallo script
+      - name: Get Backend IP
+        id: get_ip
+        run: echo "ip=$(grep 'Backend:' deploy-config.txt | cut -d' ' -f2 | sed 's|http://||' | cut -d':' -f1)" >> $GITHUB_OUTPUT
 
-# Il job del frontend rimane invariato
+      - name: Get Cognito Pool ID
+        id: get_cognito_pool
+        run: echo "pool_id=$(grep 'Cognito User Pool:' deploy-config.txt | awk '{$1=$2=$3=""; print $0}' | xargs)" >> $GITHUB_OUTPUT
+        
+      - name: Get Cognito Client ID
+        id: get_cognito_client
+        run: echo "client_id=$(grep 'Cognito Client:' deploy-config.txt | awk '{$1=$2=""; print $0}' | xargs)" >> $GITHUB_OUTPUT
+
+  # Lavoro per il deploy del frontend, che ora ATTENDE il backend
   deploy-frontend:
     name: Deploy Frontend to S3
     runs-on: ubuntu-latest
+    # Aggiungiamo 'needs' per renderlo sequenziale
+    needs: deploy-backend
     steps:
       - name: Checkout del codice
         uses: actions/checkout@v3
@@ -67,12 +74,25 @@ jobs:
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: eu-west-1
+          aws-region: ${{ needs.deploy-backend.outputs.aws_region }}
       
       - name: Setup di Node.js
         uses: actions/setup-node@v3
         with:
           node-version: '18'
+
+      # NUOVO STEP: Creiamo il file .env per il frontend
+      - name: Create .env file for Frontend
+        run: |
+          echo "REACT_APP_API_URL=http://${{ needs.deploy-backend.outputs.backend_ip }}:3000" >> ./frontend/.env
+          echo "REACT_APP_AWS_REGION=${{ needs.deploy-backend.outputs.aws_region }}" >> ./frontend/.env
+          echo "REACT_APP_COGNITO_USER_POOL_ID=${{ needs.deploy-backend.outputs.cognito_pool_id }}" >> ./frontend/.env
+          echo "REACT_APP_COGNITO_CLIENT_ID=${{ needs.deploy-backend.outputs.cognito_client_id }}" >> ./frontend/.env
+          echo "GENERATE_SOURCEMAP=false" >> ./frontend/.env
+          echo "SKIP_PREFLIGHT_CHECK=true" >> ./frontend/.env
+          
+          echo "File .env del frontend creato con successo."
+          cat ./frontend/.env
 
       - name: Installa le dipendenze e builda il frontend
         run: |
