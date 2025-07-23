@@ -6,11 +6,9 @@ on:
       - master
 
 jobs:
-  # Lavoro per il deploy del backend
   deploy-backend:
     name: Deploy Backend to ECS
     runs-on: ubuntu-latest
-    # Aggiungiamo un output per passare l'IP al job successivo
     outputs:
       backend_ip: ${{ steps.get_ip.outputs.ip }}
       aws_region: eu-west-1
@@ -46,24 +44,22 @@ jobs:
           chmod +x ./deploy.sh
           ./deploy.sh
       
-      # NUOVI STEP: Leggiamo i dati dal file di configurazione creato dallo script
+      # --- COMANDI CORRETTI CON AWK ---
       - name: Get Backend IP
         id: get_ip
-        run: echo "ip=$(grep 'Backend:' deploy-config.txt | cut -d' ' -f2 | sed 's|http://||' | cut -d':' -f1)" >> $GITHUB_OUTPUT
+        run: echo "ip=$(grep 'Backend API:' deploy-config.txt | awk '{print $NF}' | sed 's|http://||' | cut -d':' -f1)" >> $GITHUB_OUTPUT
 
       - name: Get Cognito Pool ID
         id: get_cognito_pool
-        run: echo "pool_id=$(grep 'Cognito User Pool:' deploy-config.txt | awk '{$1=$2=$3=""; print $0}' | xargs)" >> $GITHUB_OUTPUT
+        run: echo "pool_id=$(grep 'Cognito User Pool:' deploy-config.txt | awk '{print $NF}')" >> $GITHUB_OUTPUT
         
       - name: Get Cognito Client ID
         id: get_cognito_client
-        run: echo "client_id=$(grep 'Cognito Client:' deploy-config.txt | awk '{$1=$2=""; print $0}' | xargs)" >> $GITHUB_OUTPUT
+        run: echo "client_id=$(grep 'Cognito Client:' deploy-config.txt | awk '{print $NF}')" >> $GITHUB_OUTPUT
 
-  # Lavoro per il deploy del frontend, che ora ATTENDE il backend
   deploy-frontend:
     name: Deploy Frontend to S3
     runs-on: ubuntu-latest
-    # Aggiungiamo 'needs' per renderlo sequenziale
     needs: deploy-backend
     steps:
       - name: Checkout del codice
@@ -81,7 +77,6 @@ jobs:
         with:
           node-version: '18'
 
-      # NUOVO STEP: Creiamo il file .env per il frontend
       - name: Create .env file for Frontend
         run: |
           echo "REACT_APP_API_URL=http://${{ needs.deploy-backend.outputs.backend_ip }}:3000" >> ./frontend/.env
